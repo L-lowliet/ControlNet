@@ -309,7 +309,7 @@ class ControlLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.control_model = instantiate_from_config(control_stage_config)
+        self.control_model = instantiate_from_config(control_stage_config)  # 导入 ControlNet 模型 // control_stage_config
         self.control_key = control_key
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
@@ -325,20 +325,40 @@ class ControlLDM(LatentDiffusion):
         control = control.to(memory_format=torch.contiguous_format).float()
         return x, dict(c_crossattn=[c], c_concat=[control])
 
-    def apply_model(self, x_noisy, t, cond, *args, **kwargs):
+    def apply_model(self, x_noisy, t, cond, eps, out_buffer, controlnet_contexet, unet_contexet, *args, **kwargs):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
 
         cond_txt = torch.cat(cond['c_crossattn'], 1)
+        hint_in = torch.cat(cond['c_concat'], 1)
 
         if cond['c_concat'] is None:
-            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
+            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None,
+                                  only_mid_control=self.only_mid_control)
         else:
-            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
-            control = [c * scale for c, scale in zip(control, self.control_scales)]
-            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
+            buffer_device1 = []
+            buffer_device1.append(x_noisy.reshape(-1).data_ptr())
+            buffer_device1.append(hint_in.reshape(-1).data_ptr())
+            buffer_device1.append(t.reshape(-1).data_ptr())
+            buffer_device1.append(cond_txt.reshape(-1).data_ptr())
+            for out in out_buffer:
+                buffer_device1.append(out.reshape(-1).data_ptr())
 
-        return eps
+            controlnet_contexet.execute_v2(buffer_device1)
+
+            # control = self.control_model(x=x_noisy, hint=hint_in, timesteps=t, context=cond_txt)
+            # control = [c * scale for c, scale in zip(control_out, self.control_scales)]
+            # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
+
+            buffer_device2 = []
+            buffer_device2.append(x_noisy.reshape(-1).data_ptr())
+            buffer_device2.append(t.reshape(-1).data_ptr())
+            buffer_device2.append(cond_txt.reshape(-1).data_ptr())
+            for out in out_buffer:
+                buffer_device2.append(out.reshape(-1).data_ptr())
+            buffer_device2.append(eps.reshape(-1).data_ptr())
+
+            unet_contexet.execute_v2(buffer_device2)
 
     @torch.no_grad()
     def get_unconditional_conditioning(self, N):

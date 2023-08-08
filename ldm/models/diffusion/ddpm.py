@@ -6,6 +6,7 @@ https://github.com/CompVis/taming-transformers
 -- merci
 """
 
+from importlib.util import set_loader
 import torch
 import torch.nn as nn
 import numpy as np
@@ -19,6 +20,7 @@ from tqdm import tqdm
 from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from omegaconf import ListConfig
+from transformers import CLIPTokenizer
 
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ldm.modules.ema import LitEma
@@ -89,7 +91,7 @@ class DDPM(pl.LightningModule):
         self.image_size = image_size  # try conv?
         self.channels = channels
         self.use_positional_encodings = use_positional_encodings
-        self.model = DiffusionWrapper(unet_config, conditioning_key)
+        self.model = DiffusionWrapper(unet_config, conditioning_key)  # 调用ControlledUnetModel形成self.diffusion_model
         count_params(self.model, verbose=True)
         self.use_ema = use_ema
         if self.use_ema:
@@ -549,7 +551,7 @@ class LatentDiffusion(DDPM):
         reset_ema = kwargs.pop("reset_ema", False)
         reset_num_ema_updates = kwargs.pop("reset_num_ema_updates", False)
         ignore_keys = kwargs.pop("ignore_keys", [])
-        super().__init__(conditioning_key=conditioning_key, *args, **kwargs)
+        super().__init__(conditioning_key=conditioning_key, *args, **kwargs)  # 调用了ControlledUnetModel
         self.concat_mode = concat_mode
         self.cond_stage_trainable = cond_stage_trainable
         self.cond_stage_key = cond_stage_key
@@ -561,8 +563,8 @@ class LatentDiffusion(DDPM):
             self.scale_factor = scale_factor
         else:
             self.register_buffer('scale_factor', torch.tensor(scale_factor))
-        self.instantiate_first_stage(first_stage_config)
-        self.instantiate_cond_stage(cond_stage_config)
+        self.instantiate_first_stage(first_stage_config)  # 初始化AutoencoderKL 生成first_stage_model
+        self.instantiate_cond_stage(cond_stage_config)  # 初始化FrozenCLIPEmbedder 生成第二阶段模型cond_stage_model
         self.cond_stage_forward = cond_stage_forward
         self.clip_denoised = False
         self.bbox_tokenizer = None
@@ -580,6 +582,9 @@ class LatentDiffusion(DDPM):
             print(" +++++++++++ WARNING: RESETTING NUM_EMA UPDATES TO ZERO +++++++++++ ")
             assert self.use_ema
             self.model_ema.reset_num_updates()
+
+        self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+
 
     def make_cond_schedule(self, ):
         self.cond_ids = torch.full(size=(self.num_timesteps,), fill_value=self.num_timesteps - 1, dtype=torch.long)
@@ -613,8 +618,8 @@ class LatentDiffusion(DDPM):
             self.make_cond_schedule()
 
     def instantiate_first_stage(self, config):
-        model = instantiate_from_config(config)
-        self.first_stage_model = model.eval()
+        model = instantiate_from_config(config)  # 初始化AutoencoderKL 模型
+        self.first_stage_model = model.eval()  #
         self.first_stage_model.train = disabled_train
         for param in self.first_stage_model.parameters():
             param.requires_grad = False
@@ -629,8 +634,8 @@ class LatentDiffusion(DDPM):
                 self.cond_stage_model = None
                 # self.be_unconditional = True
             else:
-                model = instantiate_from_config(config)
-                self.cond_stage_model = model.eval()
+                model = instantiate_from_config(config)  # 初始化FrozenCLIPEmbedder
+                self.cond_stage_model = model.eval()  # 推理模式
                 self.cond_stage_model.train = disabled_train
                 for param in self.cond_stage_model.parameters():
                     param.requires_grad = False
@@ -663,15 +668,34 @@ class LatentDiffusion(DDPM):
 
     def get_learned_conditioning(self, c):
         if self.cond_stage_forward is None:
-            if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
-                c = self.cond_stage_model.encode(c)
+            if True:
+                batch_encoding = self.tokenizer(c, truncation=True, max_length=77, return_length=True,
+                                                return_overflowing_tokens=False, padding="max_length",
+                                                return_tensors="pt")
+                tokens = batch_encoding["input_ids"].to(self.device)
+                # c = self.cond_stage_model.encode(tokens)  # cond_stage_model
+
+                # 显存分配
+                c = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
+                buffer_device = []
+                tokens = tokens.to(torch.int32)
+                buffer_device.append(tokens.reshape(-1).data_ptr())
+                buffer_device.append(c.reshape(-1).data_ptr())
+
+                self.clip_context.execute_v2(buffer_device)
+
                 if isinstance(c, DiagonalGaussianDistribution):
                     c = c.mode()
+
             else:
                 c = self.cond_stage_model(c)
+
+
         else:
             assert hasattr(self.cond_stage_model, self.cond_stage_forward)
             c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
+
+
         return c
 
     def meshgrid(self, h, w):
@@ -825,7 +849,16 @@ class LatentDiffusion(DDPM):
             z = rearrange(z, 'b h w c -> b c h w').contiguous()
 
         z = 1. / self.scale_factor * z
+
+        # c = torch.zeros((1, 3, 256, 384), device="cuda", dtype=torch.float32)
+        # buffer_device1 = []
+        # buffer_device1.append(z.reshape(-1).data_ptr())
+        # buffer_device1.append(c.reshape(-1).data_ptr())
+        #
+        # self.vae_context.execute_v2(buffer_device1)
+
         return self.first_stage_model.decode(z)
+        # return c
 
     @torch.no_grad()
     def encode_first_stage(self, x):
@@ -847,7 +880,7 @@ class LatentDiffusion(DDPM):
                 c = self.q_sample(x_start=c, t=tc, noise=torch.randn_like(c.float()))
         return self.p_losses(x, c, t, *args, **kwargs)
 
-    def apply_model(self, x_noisy, t, cond, return_ids=False):
+    def apply_model(self, x_noisy, t, cond, buffer1, buffer2, return_ids=False):
         if isinstance(cond, dict):
             # hybrid case, cond is expected to be a dict
             pass
@@ -1313,7 +1346,7 @@ class DiffusionWrapper(pl.LightningModule):
     def __init__(self, diff_model_config, conditioning_key):
         super().__init__()
         self.sequential_cross_attn = diff_model_config.pop("sequential_crossattn", False)
-        self.diffusion_model = instantiate_from_config(diff_model_config)
+        self.diffusion_model = instantiate_from_config(diff_model_config)  # 初始化 ControlledUnetModel
         self.conditioning_key = conditioning_key
         assert self.conditioning_key in [None, 'concat', 'crossattn', 'hybrid', 'adm', 'hybrid-adm', 'crossattn-adm']
 

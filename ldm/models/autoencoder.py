@@ -80,7 +80,7 @@ class AutoencoderKL(pl.LightningModule):
             self.model_ema(self)
 
     def encode(self, x):
-        h = self.encoder(x)
+        h = self.encoder(x)  # //运行Encoder
         moments = self.quant_conv(h)
         posterior = DiagonalGaussianDistribution(moments)
         return posterior
@@ -88,15 +88,16 @@ class AutoencoderKL(pl.LightningModule):
     def decode(self, z):
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
+
         return dec
 
     def forward(self, input, sample_posterior=True):
-        posterior = self.encode(input)
+        posterior = self.encode(input)  # //运行Encoder
         if sample_posterior:
             z = posterior.sample()
         else:
             z = posterior.mode()
-        dec = self.decode(z)
+        dec = self.decode(z)  # 运行Decoder
         return dec, posterior
 
     def get_input(self, batch, k):

@@ -3,6 +3,7 @@
 import torch
 import numpy as np
 from tqdm import tqdm
+import threading
 
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, extract_into_tensor
 
@@ -13,6 +14,47 @@ class DDIMSampler(object):
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
+        # 初始化输出
+        self.output_buffer1 = []
+        self.output_buffer2 = []
+        b, _, h, w = 1, 320, 32, 48
+        for i in range(3):
+            temp1 = torch.zeros(b, 320, h, w, dtype=torch.float32).to("cuda")
+            self.output_buffer1.append(temp1)
+            temp2 = torch.zeros(b, 320, h, w, dtype=torch.float32).to("cuda")
+            self.output_buffer2.append(temp2)
+
+        temp1 = torch.zeros(b, 320, h // 2, w // 2, dtype=torch.float32).to("cuda")
+        self.output_buffer1.append(temp1)
+        temp2 = torch.zeros(b, 320, h // 2, w // 2, dtype=torch.float32).to("cuda")
+        self.output_buffer2.append(temp2)
+
+        for i in range(2):
+            temp1 = torch.zeros(b, 640, h // 2, w // 2, dtype=torch.float32).to("cuda")
+            self.output_buffer1.append(temp1)
+            temp2 = torch.zeros(b, 640, h // 2, w // 2, dtype=torch.float32).to("cuda")
+            self.output_buffer2.append(temp2)
+
+        temp1 = torch.zeros(b, 640, h // 4, w // 4, dtype=torch.float32).to("cuda")
+        self.output_buffer1.append(temp1)
+        temp2 = torch.zeros(b, 640, h // 4, w // 4, dtype=torch.float32).to("cuda")
+        self.output_buffer2.append(temp2)
+
+        for i in range(2):
+            temp1 = torch.zeros(b, 1280, h // 4, w // 4, dtype=torch.float32).to("cuda")
+            self.output_buffer1.append(temp1)
+            temp2 = torch.zeros(b, 1280, h // 4, w // 4, dtype=torch.float32).to("cuda")
+            self.output_buffer2.append(temp2)
+
+        for i in range(4):
+            temp1 = torch.zeros(b, 1280, h // 8, w // 8, dtype=torch.float32).to("cuda")
+            self.output_buffer1.append(temp1)
+            temp2 = torch.zeros(b, 1280, h // 8, w // 8, dtype=torch.float32).to("cuda")
+            self.output_buffer2.append(temp2)
+
+        self.eps1 = torch.zeros(1, 4, 32, 48, dtype=torch.float32).to("cuda")
+        self.eps2 = torch.zeros(1, 4, 32, 48, dtype=torch.float32).to("cuda")
+
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
@@ -149,7 +191,7 @@ class DDIMSampler(object):
 
         for i, step in enumerate(iterator):
             index = total_steps - i - 1
-            ts = torch.full((b,), step, device=device, dtype=torch.long)
+            ts = torch.full((b,), step, device=device, dtype=torch.int32)
 
             if mask is not None:
                 assert x0 is not None
@@ -187,10 +229,18 @@ class DDIMSampler(object):
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
             model_output = self.model.apply_model(x, t, c)
         else:
-            model_t = self.model.apply_model(x, t, c)
-            model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
-            model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
-
+            thread1 = threading.Thread(target=self.model.apply_model, args=(
+            x, t, c, self.eps1, self.output_buffer1, self.model.controlnet_context1, self.model.unet_context1))
+            thread2 = threading.Thread(target=self.model.apply_model, args=(
+            x, t, unconditional_conditioning, self.eps2, self.output_buffer2, self.model.controlnet_context2,
+            self.model.unet_context2))
+            # self.model.apply_model(x, t, c, self.eps1, self.output_buffer1, self.model.controlnet_context1, self.model.unet_context1)  # 执行代码
+            # self.model.apply_model(x, t, unconditional_conditioning, self.eps2, self.output_buffer2, self.model.controlnet_context2, self.model.unet_context2)
+            thread1.start()
+            thread2.start()
+            thread1.join()
+            thread2.join()
+            model_output = self.eps2 + unconditional_guidance_scale * (self.eps1 - self.eps2)
         if self.model.parameterization == "v":
             e_t = self.model.predict_eps_from_z_and_v(x, t, model_output)
         else:
@@ -315,3 +365,4 @@ class DDIMSampler(object):
                                           unconditional_conditioning=unconditional_conditioning)
             if callback: callback(i)
         return x_dec
+    
