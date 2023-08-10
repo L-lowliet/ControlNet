@@ -2,21 +2,20 @@ from share import *
 import config
 
 import os
-import cv2
 import einops
-import gradio as gr
 import numpy as np
 import torch
 import random
 import tensorrt as trt
-from cuda import cudart
+
 
 from pytorch_lightning import seed_everything
 from annotator.util import resize_image, HWC3
 from annotator.canny import CannyDetector
 from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
-from fp16 import clip_fp16
+from combine2 import merge
+
 
 class hackathon():
 
@@ -53,7 +52,7 @@ class hackathon():
                               input_names=intput_name, output_names=["output"])
 
         # os.system("onnxsim unet.onnx unetsim.onnx")
-        os.system("trtexec --onnx=./unet/unet.onnx --saveEngine=unet.trt  --fp16 --builderOptimizationLevel=5 --inputIOFormats=fp32:chw,int32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw")
+        # os.system("trtexec --onnx=./unet/unet.onnx --saveEngine=unet.trt  --fp16 --builderOptimizationLevel=5 --inputIOFormats=fp32:chw,int32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw")
         # os.system("trtexec --onnx=./unet/unet.onnx --saveEngine=unet.trt  --fp16  --inputIOFormats=fp32:chw,int32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw,fp32:chw")
 
         control_model = self.model.control_model
@@ -75,7 +74,11 @@ class hackathon():
                               input_names=['x_in', "hint_in", "timesteps_in", "context_in"], output_names=output_names)
 
         os.system("onnxsim controlnet.onnx controlnetsim.onnx")
-        os.system("trtexec --onnx=controlnetsim.onnx --saveEngine=controlnet.trt  --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw")
+        # os.system("trtexec --onnx=controlnetsim.onnx --saveEngine=controlnet.trt  --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw")
+
+        # 合并
+        merge("./controlnetsim.onnx", "./unet/unet.onnx")
+        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combinesim.trt  --builderOptimizationLevel=5 --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
 
         transformer = self.model.cond_stage_model
 
@@ -85,7 +88,6 @@ class hackathon():
         with torch.inference_mode():
             torch.onnx.export(transformer, input, 'clip.onnx', input_names=['input_ids'], output_names=['output'],
                               opset_version=17)
-
 
         # clip_fp16()
         os.system("onnxsim clip.onnx clipsim.onnx")
@@ -105,7 +107,6 @@ class hackathon():
         #
         # os.system("onnxsim vae.onnx vaesim.onnx")
         # os.system("trtexec --onnx=vaesim.onnx --saveEngine=vae.trt --builderOptimizationLevel=5")
-
 
     def clip(self):
         with open("./clip.trt", 'rb') as f:
@@ -148,22 +149,31 @@ class hackathon():
         # nIO = unet_engine.num_io_tensors
         # lTensorName = [unet_engine.get_tensor_name(i) for i in range(nIO)]
 
+    def combine(self):
+        with open("./combine.trt", 'rb') as f:
+            engine_str = f.read()
+        combine_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
+        combine_context1 = combine_engine.create_execution_context()
+        self.model.combine_context1 = combine_context1  # 替换模型
+        combine_context2 = combine_engine.create_execution_context()
+        self.model.combine_context2 = combine_context2  # 替换模型
+
     def initialize(self):
         self.apply_canny = CannyDetector()
         self.model = create_model('./models/cldm_v15.yaml').cpu()
-        self.model.load_state_dict(load_state_dict('/home/player/ControlNet/models/control_sd15_canny.pth', location='cuda'), False)
+        self.model.load_state_dict(load_state_dict('/home/player/ControlNet/models/control_sd15_canny.pth', location='cuda'))
+        # self.model.load_state_dict(load_state_dict('./models/control_sd15_canny.pth', location='cuda'))
         self.model = self.model.cuda()
         self.ddim_sampler = DDIMSampler(self.model)
         self.trt_logger = trt.Logger(trt.Logger.WARNING)
 
-        self.stream1 = cudart.cudaStreamCreate()[1]
-        self.stream2 = cudart.cudaStreamCreate()[1]
+        # self.stream1 = cudart.cudaStreamCreate()[1]
+        # self.stream2 = cudart.cudaStreamCreate()[1]
         trt.init_libnvinfer_plugins(self.trt_logger, '')
         self.to_trt()
         self.clip()
+        self.combine()
         # self.vae()
-        self.controlnet()
-        self.unet()
 
     def process(self, input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode,
                 strength, scale, seed, eta, low_threshold, high_threshold):
@@ -188,7 +198,6 @@ class hackathon():
 
             cond = {"c_concat": [control],
                     "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}#加载过一次cond_stage_model clip
-            print(cond["c_crossattn"])
             un_cond = {"c_concat": None if guess_mode else [control],
                        "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}  # 加载过一次cond_stage_model
             shape = (4, H // 8, W // 8)
