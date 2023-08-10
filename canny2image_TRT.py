@@ -78,7 +78,7 @@ class hackathon():
 
         # 合并
         merge("./controlnetsim.onnx", "./unet/unet.onnx")
-        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combinesim.trt  --builderOptimizationLevel=5 --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
+        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combine.trt  --builderOptimizationLevel=5 --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
 
         transformer = self.model.cond_stage_model
 
