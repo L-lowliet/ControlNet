@@ -95,18 +95,17 @@ class hackathon():
             "trtexec --onnx=clipsim.onnx --saveEngine=clip.trt --inputIOFormats=int32:chw")
 
 
-        #
-        # vae_model = self.model.first_stage_model
-        #
-        # vae_model.forward = vae_model.decode
-        #
-        # z = torch.randn((1, 4, 32, 48), dtype=torch.float32, device='cuda')
-        #
-        # with torch.inference_mode():
-        #     torch.onnx.export(vae_model, z, 'vae.onnx', opset_version=17, input_names=['z'], output_names=['output'])
-        #
-        # os.system("onnxsim vae.onnx vaesim.onnx")
-        # os.system("trtexec --onnx=vaesim.onnx --saveEngine=vae.trt --builderOptimizationLevel=5")
+        vae_model = self.model.first_stage_model
+
+        vae_model.forward = vae_model.decode
+
+        z = torch.randn((1, 4, 32, 48), dtype=torch.float32, device='cuda')
+
+        with torch.inference_mode():
+            torch.onnx.export(vae_model, z, 'vae.onnx', opset_version=17, input_names=['z'], output_names=['output'])
+
+        os.system("onnxsim vae.onnx vaesim.onnx")
+        os.system("trtexec --onnx=vaesim.onnx --saveEngine=vae.trt")
 
     def clip(self):
         with open("./clip.trt", 'rb') as f:
@@ -173,7 +172,7 @@ class hackathon():
         self.to_trt()
         self.clip()
         self.combine()
-        # self.vae()
+        self.vae()
 
     def process(self, input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode,
                 strength, scale, seed, eta, low_threshold, high_threshold):

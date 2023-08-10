@@ -584,7 +584,7 @@ class LatentDiffusion(DDPM):
             self.model_ema.reset_num_updates()
 
         self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-
+        self.c = torch.zeros((1, 3, 256, 384), device="cuda", dtype=torch.float32)
 
     def make_cond_schedule(self, ):
         self.cond_ids = torch.full(size=(self.num_timesteps,), fill_value=self.num_timesteps - 1, dtype=torch.long)
@@ -850,14 +850,13 @@ class LatentDiffusion(DDPM):
 
         z = 1. / self.scale_factor * z
 
-        # c = torch.zeros((1, 3, 256, 384), device="cuda", dtype=torch.float32)
-        # buffer_device1 = []
-        # buffer_device1.append(z.reshape(-1).data_ptr())
-        # buffer_device1.append(c.reshape(-1).data_ptr())
-        #
-        # self.vae_context.execute_v2(buffer_device1)
+        buffer_device = []
+        buffer_device.append(z.reshape(-1).data_ptr())
+        buffer_device.append(self.c.reshape(-1).data_ptr())
 
-        return self.first_stage_model.decode(z)
+        self.vae_context.execute_v2(buffer_device)
+        # c1 = self.first_stage_model.decode(z)
+        return self.c.clone()
         # return c
 
     @torch.no_grad()
