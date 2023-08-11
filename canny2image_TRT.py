@@ -111,8 +111,6 @@ class hackathon():
             engine_str = f.read()
         clip_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
         clip_context = clip_engine.create_execution_context()
-
-        clip_context.set_binding_shape(0, (1, 77))
         self.model.clip_context = clip_context  # 替换模型
     
     def vae(self):
@@ -120,8 +118,6 @@ class hackathon():
             engine_str = f.read()
         vae_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
         vae_context = vae_engine.create_execution_context()
-
-        vae_context.set_binding_shape(0, (1, 4, 32, 48))
         self.model.vae_context = vae_context
 
     def controlnet(self):
@@ -134,7 +130,6 @@ class hackathon():
         self.model.controlnet_context2 = controlnet_context2  # 替换模型
         # nIO = controlnet_engine.num_io_tensors
         # lTensorName = [controlnet_engine.get_tensor_name(i) for i in range(nIO)]
-
 
     def unet(self):
         with open("./unet.trt", 'rb') as f:
@@ -193,13 +188,20 @@ class hackathon():
             if config.save_memory:
                 self.model.low_vram_shift(is_diffusing=False)
 
+            # c1 = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
+            #
+            # cond = {"c_concat": [control],
+            #         "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}
+            # un_cond = {"c_concat": None if guess_mode else [control],
+            #            "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}
+
             # batch_size = 2
             c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
-
+            # cccc = [c_crossattn[1].unsqueeze(0)]
             cond = {"c_concat": [control],
-                    "c_crossattn": [c_crossattn[0]]}#加载过一次cond_stage_model clip
+                    "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
             un_cond = {"c_concat": None if guess_mode else [control],
-                       "c_crossattn": [c_crossattn[1]]}  # 加载过一次cond_stage_model
+                       "c_crossattn": [c_crossattn[1].unsqueeze(0)]}  # 加载过一次cond_stage_model
             shape = (4, H // 8, W // 8)
 
             if config.save_memory:
