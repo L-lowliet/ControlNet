@@ -585,6 +585,7 @@ class LatentDiffusion(DDPM):
 
         self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
         self.c = torch.zeros((1, 3, 256, 384), device="cuda", dtype=torch.float32)
+        self.c1 = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
 
     def make_cond_schedule(self, ):
         self.cond_ids = torch.full(size=(self.num_timesteps,), fill_value=self.num_timesteps - 1, dtype=torch.long)
@@ -672,15 +673,14 @@ class LatentDiffusion(DDPM):
                 batch_encoding = self.tokenizer(c, truncation=True, max_length=77, return_length=True,
                                                 return_overflowing_tokens=False, padding="max_length",
                                                 return_tensors="pt")
-                tokens = batch_encoding["input_ids"].to(self.device)
+                tokens = batch_encoding["input_ids"].to(self.device).to(torch.int32)
                 # c = self.cond_stage_model.encode(tokens)  # cond_stage_model
 
                 # 显存分配
-                c = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
+                # c = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
                 buffer_device = []
-                tokens = tokens.to(torch.int32)
                 buffer_device.append(tokens.reshape(-1).data_ptr())
-                buffer_device.append(c.reshape(-1).data_ptr())
+                buffer_device.append(self.c1.reshape(-1).data_ptr())
 
                 self.clip_context.execute_v2(buffer_device)
 
@@ -690,13 +690,11 @@ class LatentDiffusion(DDPM):
             else:
                 c = self.cond_stage_model(c)
 
-
         else:
             assert hasattr(self.cond_stage_model, self.cond_stage_forward)
             c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
 
-
-        return c
+        return self.c1.clone()
 
     def meshgrid(self, h, w):
         y = torch.arange(0, h).view(h, 1, 1).repeat(1, w, 1)
