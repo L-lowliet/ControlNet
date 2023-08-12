@@ -284,6 +284,16 @@ class ControlNet(nn.Module):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
 
     def forward(self, x, hint, timesteps, context, **kwargs):
+        # cond_txt1 = torch.cat(cond['c_crossattn'], 1)
+        # hint_in1 = torch.cat(cond['c_concat'], 1)
+        # cond_txt2 = torch.cat(unconditional_conditioning['c_crossattn'], 1)
+        # hint_in2 = torch.cat(unconditional_conditioning['c_concat'], 1)
+        #
+        # x_noisy_batch = torch.cat([x_noisy, x_noisy], dim=0)
+        # t_batch = torch.cat([t, t])  # bug?
+        # hint_in_batch = torch.cat([hint_in1, hint_in2], dim=0)
+        # cond_txt_batch = torch.cat([cond_txt1, cond_txt2], dim=0)
+
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
 
@@ -368,18 +378,14 @@ class ControlLDM(LatentDiffusion):
         hint_in2 = torch.cat(unconditional_conditioning['c_concat'], 1)
 
         x_noisy_batch = torch.cat([x_noisy, x_noisy], dim=0)
-        t_batch = torch.cat([t, t])  # bug?
+        t_batch = torch.cat([t, t])
         hint_in_batch = torch.cat([hint_in1, hint_in2], dim=0)
         cond_txt_batch = torch.cat([cond_txt1, cond_txt2], dim=0)
-        # eps_batch = torch.cat([eps1, eps2], dim=0)
 
         buffer_device1 = []
         # 输入
         buffer_device1.append(x_noisy_batch.reshape(-1).data_ptr())
         buffer_device1.append(hint_in_batch.reshape(-1).data_ptr())
-        buffer_device1.append(t_batch.reshape(-1).data_ptr())
-        buffer_device1.append(cond_txt_batch.reshape(-1).data_ptr())
-        buffer_device1.append(x_noisy_batch.reshape(-1).data_ptr())
         buffer_device1.append(t_batch.reshape(-1).data_ptr())
         buffer_device1.append(cond_txt_batch.reshape(-1).data_ptr())
         # 输出

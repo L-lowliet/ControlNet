@@ -1,7 +1,6 @@
 import onnx
 import onnx_graphsurgeon as gs
 import os
-from onnx import checker
 from typing import List, MutableMapping, Optional, Set, Tuple
 
 from onnx import ModelProto

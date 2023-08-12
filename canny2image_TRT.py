@@ -15,6 +15,7 @@ from annotator.canny import CannyDetector
 from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 from combine2 import merge
+from input_connection import remove
 
 
 class hackathon():
@@ -76,9 +77,11 @@ class hackathon():
         os.system("onnxsim controlnet.onnx controlnetsim.onnx")
         # os.system("trtexec --onnx=controlnetsim.onnx --saveEngine=controlnet.trt  --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw")
 
-        # 合并
+        # 合并controlnet和unet
         merge("./controlnetsim.onnx", "./unet/unet.onnx")
-        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combine_2.trt  --explicitBatch  --fp16  --builderOptimizationLevel=5 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
+        # 去除冗余输入
+        remove("./combine/combinesim.onnx")
+        os.system("trtexec --onnx=./connection_infer.onnx --saveEngine=combine.trt  --explicitBatch  --fp16  --builderOptimizationLevel=5 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw")
 
         transformer = self.model.cond_stage_model
 
@@ -143,13 +146,11 @@ class hackathon():
         # lTensorName = [unet_engine.get_tensor_name(i) for i in range(nIO)]
 
     def combine(self):
-        with open("./combine_2.trt", 'rb') as f:
+        with open("./combine.trt", 'rb') as f:
             engine_str = f.read()
         combine_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
         combine_context1 = combine_engine.create_execution_context()
         self.model.combine_context1 = combine_context1  # 替换模型
-        # combine_context2 = combine_engine.create_execution_context()
-        # self.model.combine_context2 = combine_context2  # 替换模型
 
     def initialize(self):
         self.apply_canny = CannyDetector()
