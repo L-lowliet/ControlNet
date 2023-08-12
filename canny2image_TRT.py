@@ -148,8 +148,8 @@ class hackathon():
         combine_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
         combine_context1 = combine_engine.create_execution_context()
         self.model.combine_context1 = combine_context1  # 替换模型
-        combine_context2 = combine_engine.create_execution_context()
-        self.model.combine_context2 = combine_context2  # 替换模型
+        # combine_context2 = combine_engine.create_execution_context()
+        # self.model.combine_context2 = combine_context2  # 替换模型
 
     def initialize(self):
         self.apply_canny = CannyDetector()
