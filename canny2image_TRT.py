@@ -16,6 +16,7 @@ from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 from combine2 import merge
 from input_connection import remove
+from clipfp16 import clip_fp16
 
 
 class hackathon():
@@ -89,13 +90,13 @@ class hackathon():
 
         # 导出 input_names和output_names 带括号
         with torch.inference_mode():
-            torch.onnx.export(transformer, input, 'clip.onnx', input_names=['input_ids'], output_names=['output'],
+            torch.onnx.export(transformer, input, 'clip.onnx', input_names=['input_ids'], output_names=['output'],dynamic_axes={"input_ids": [0], "output": [0]},
                               opset_version=17)
 
-        # clip_fp16()
         os.system("onnxsim clip.onnx clipsim.onnx")
+        clip_fp16("./clipsim.onnx")
         os.system(
-            "trtexec --onnx=clipsim.onnx --saveEngine=clip.trt --inputIOFormats=int32:chw")
+            "trtexec --onnx=clip_fp16.onnx --fp16  --saveEngine=clip.trt --inputIOFormats=int32:chw --minShapes=input_ids:1x77 --optShapes=input_ids:1x77 --maxShapes=input_ids:1x77")
 
         vae_model = self.model.first_stage_model
 
@@ -198,7 +199,7 @@ class hackathon():
 
             # batch_size = 2
             # c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
-            # cccc = [c_crossattn[1].unsqueeze(0)]
+            #
             # cond = {"c_concat": [control],
             #         "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
             # un_cond = {"c_concat": None if guess_mode else [control],
