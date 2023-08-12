@@ -22,23 +22,23 @@ class hackathon():
     def to_trt(self):
         unet_model = self.model.model.diffusion_model
 
-        x = torch.randn((1, 4, 32, 48), dtype=torch.float32, device='cuda')
-        timesteps = torch.zeros(1, dtype=torch.int32, device='cuda')
-        context = torch.randn((1, 77, 768), dtype=torch.float32, device='cuda')
+        x = torch.randn((2, 4, 32, 48), dtype=torch.float32, device='cuda')
+        timesteps = torch.zeros((2,), dtype=torch.int32, device='cuda')
+        context = torch.randn((2, 77, 768), dtype=torch.float32, device='cuda')
 
-        control1 = torch.randn((1, 320, 32, 48), dtype=torch.float32, device='cuda')
-        control2 = torch.randn((1, 320, 32, 48), dtype=torch.float32, device='cuda')
-        control3 = torch.randn((1, 320, 32, 48), dtype=torch.float32, device='cuda')
-        control4 = torch.randn((1, 320, 16, 24), dtype=torch.float32, device='cuda')
-        control5 = torch.randn((1, 640, 16, 24), dtype=torch.float32, device='cuda')
-        control6 = torch.randn((1, 640, 16, 24), dtype=torch.float32, device='cuda')
-        control7 = torch.randn((1, 640, 8, 12), dtype=torch.float32, device='cuda')
-        control8 = torch.randn((1, 1280, 8, 12), dtype=torch.float32, device='cuda')
-        control9 = torch.randn((1, 1280, 8, 12), dtype=torch.float32, device='cuda')
-        control10 = torch.randn((1, 1280, 4, 6), dtype=torch.float32, device='cuda')
-        control11 = torch.randn((1, 1280, 4, 6), dtype=torch.float32, device='cuda')
-        control12 = torch.randn((1, 1280, 4, 6), dtype=torch.float32, device='cuda')
-        control13 = torch.randn((1, 1280, 4, 6), dtype=torch.float32, device='cuda')
+        control1 = torch.randn((2, 320, 32, 48), dtype=torch.float32, device='cuda')
+        control2 = torch.randn((2, 320, 32, 48), dtype=torch.float32, device='cuda')
+        control3 = torch.randn((2, 320, 32, 48), dtype=torch.float32, device='cuda')
+        control4 = torch.randn((2, 320, 16, 24), dtype=torch.float32, device='cuda')
+        control5 = torch.randn((2, 640, 16, 24), dtype=torch.float32, device='cuda')
+        control6 = torch.randn((2, 640, 16, 24), dtype=torch.float32, device='cuda')
+        control7 = torch.randn((2, 640, 8, 12), dtype=torch.float32, device='cuda')
+        control8 = torch.randn((2, 1280, 8, 12), dtype=torch.float32, device='cuda')
+        control9 = torch.randn((2, 1280, 8, 12), dtype=torch.float32, device='cuda')
+        control10 = torch.randn((2, 1280, 4, 6), dtype=torch.float32, device='cuda')
+        control11 = torch.randn((2, 1280, 4, 6), dtype=torch.float32, device='cuda')
+        control12 = torch.randn((2, 1280, 4, 6), dtype=torch.float32, device='cuda')
+        control13 = torch.randn((2, 1280, 4, 6), dtype=torch.float32, device='cuda')
 
         control = [control1, control2, control3, control4, control5, control6, control7, control8, control9, control10,
                    control11, control12, control13]
@@ -57,10 +57,10 @@ class hackathon():
 
         control_model = self.model.control_model
 
-        input1 = torch.randn((1, 4, 32, 48), dtype=torch.float32, device='cuda')
-        input2 = torch.randn((1, 3, 256, 384), dtype=torch.float32, device='cuda')
-        input3 = torch.zeros(1, dtype=torch.int32, device='cuda')
-        input4 = torch.randn((1, 77, 768), dtype=torch.float32, device='cuda')
+        input1 = torch.randn((2, 4, 32, 48), dtype=torch.float32, device='cuda')
+        input2 = torch.randn((2, 3, 256, 384), dtype=torch.float32, device='cuda')
+        input3 = torch.zeros((2,), dtype=torch.int32, device='cuda')
+        input4 = torch.randn((2, 77, 768), dtype=torch.float32, device='cuda')
 
         output_names = []
 
@@ -78,11 +78,11 @@ class hackathon():
 
         # 合并
         merge("./controlnetsim.onnx", "./unet/unet.onnx")
-        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combine.trt  --builderOptimizationLevel=5 --fp16 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
+        os.system("trtexec --onnx=./combine/combinesim.onnx --saveEngine=combine_2.trt  --explicitBatch  --fp16  --builderOptimizationLevel=5 --inputIOFormats=fp32:chw,fp32:chw,int32:chw,fp32:chw,fp32:chw,int32:chw,fp32:chw")
 
         transformer = self.model.cond_stage_model
 
-        input = torch.zeros((2, 77), dtype=torch.int32, device="cuda")
+        input = torch.zeros((1, 77), dtype=torch.int32, device="cuda")
 
         # 导出 input_names和output_names 带括号
         with torch.inference_mode():
@@ -143,7 +143,7 @@ class hackathon():
         # lTensorName = [unet_engine.get_tensor_name(i) for i in range(nIO)]
 
     def combine(self):
-        with open("./combine.trt", 'rb') as f:
+        with open("./combine_2.trt", 'rb') as f:
             engine_str = f.read()
         combine_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(engine_str)
         combine_context1 = combine_engine.create_execution_context()
@@ -189,19 +189,19 @@ class hackathon():
                 self.model.low_vram_shift(is_diffusing=False)
 
             # c1 = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
-            #
-            # cond = {"c_concat": [control],
-            #         "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}
-            # un_cond = {"c_concat": None if guess_mode else [control],
-            #            "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}
+
+            cond = {"c_concat": [control],
+                    "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}
+            un_cond = {"c_concat": None if guess_mode else [control],
+                       "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}
 
             # batch_size = 2
-            c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
+            # c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
             # cccc = [c_crossattn[1].unsqueeze(0)]
-            cond = {"c_concat": [control],
-                    "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
-            un_cond = {"c_concat": None if guess_mode else [control],
-                       "c_crossattn": [c_crossattn[1].unsqueeze(0)]}  # 加载过一次cond_stage_model
+            # cond = {"c_concat": [control],
+            #         "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
+            # un_cond = {"c_concat": None if guess_mode else [control],
+            #            "c_crossattn": [c_crossattn[1].unsqueeze(0)]}  # 加载过一次cond_stage_model
             shape = (4, H // 8, W // 8)
 
             if config.save_memory:

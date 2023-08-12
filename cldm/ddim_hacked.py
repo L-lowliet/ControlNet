@@ -55,6 +55,7 @@ class DDIMSampler(object):
 
         self.eps1 = torch.zeros(1, 4, 32, 48, dtype=torch.float32).to("cuda")
         self.eps2 = torch.zeros(1, 4, 32, 48, dtype=torch.float32).to("cuda")
+        self.eps3 = torch.zeros(2, 4, 32, 48, dtype=torch.float32).to("cuda")
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
@@ -235,15 +236,18 @@ class DDIMSampler(object):
             # thread2 = threading.Thread(target=self.model.apply_model, args=(
             # x, t, unconditional_conditioning, self.eps2, self.output_buffer2, self.model.controlnet_context2,
             # self.model.unet_context2))
-            thread1 = threading.Thread(target=self.model.apply_model, args=(x, t, c, self.eps1, self.model.combine_context1))
-            thread2 = threading.Thread(target=self.model.apply_model, args=(x, t, unconditional_conditioning, self.eps2, self.model.combine_context2))
+
+            # thread1 = threading.Thread(target=self.model.apply_model, args=(x, t, c, self.eps1, self.model.combine_context1))
+            # thread2 = threading.Thread(target=self.model.apply_model, args=(x, t, unconditional_conditioning, self.eps2,self.model.combine_context2))
+            self.model.apply_model2(x, t, c, unconditional_conditioning, self.eps3, self.model.combine_context1)  # 执行代码
             # self.model.apply_model(x, t, c, self.eps1, self.output_buffer1, self.model.controlnet_context1, self.model.unet_context1)  # 执行代码
             # self.model.apply_model(x, t, unconditional_conditioning, self.eps2, self.output_buffer2, self.model.controlnet_context2, self.model.unet_context2)
-            thread1.start()
-            thread2.start()
-            thread1.join()
-            thread2.join()
-            model_output = self.eps2 + unconditional_guidance_scale * (self.eps1 - self.eps2)
+            # thread1.start()
+            # thread2.start()
+            # thread1.join()
+            # thread2.join()
+            # model_output = self.eps2 + unconditional_guidance_scale * (self.eps1 - self.eps2)
+            model_output = self.eps3[1] + unconditional_guidance_scale * (self.eps3[0] - self.eps3[1])
         if self.model.parameterization == "v":
             e_t = self.model.predict_eps_from_z_and_v(x, t, model_output)
         else:

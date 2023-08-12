@@ -13,7 +13,8 @@ from ldm.modules.diffusionmodules.util import (
 from einops import rearrange, repeat
 from torchvision.utils import make_grid
 from ldm.modules.attention import SpatialTransformer
-from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSequential, ResBlock, Downsample, AttentionBlock
+from ldm.modules.diffusionmodules.openaimodel import UNetModel, TimestepEmbedSequential, ResBlock, Downsample, \
+    AttentionBlock
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -111,7 +112,8 @@ class ControlNet(nn.Module):
             assert len(disable_self_attentions) == len(channel_mult)
         if num_attention_blocks is not None:
             assert len(num_attention_blocks) == len(self.num_res_blocks)
-            assert all(map(lambda i: self.num_res_blocks[i] >= num_attention_blocks[i], range(len(num_attention_blocks))))
+            assert all(
+                map(lambda i: self.num_res_blocks[i] >= num_attention_blocks[i], range(len(num_attention_blocks))))
             print(f"Constructor of UNetModel received num_attention_blocks={num_attention_blocks}. "
                   f"This option has LESS priority than attention_resolutions {attention_resolutions}, "
                   f"i.e., in cases where num_attention_blocks[i] > 0 but 2**i not in attention_resolutions, "
@@ -344,8 +346,6 @@ class ControlLDM(LatentDiffusion):
             buffer_device1.append(hint_in.reshape(-1).data_ptr())
             buffer_device1.append(t.reshape(-1).data_ptr())
             buffer_device1.append(cond_txt.reshape(-1).data_ptr())
-            # for out in out_buffer:
-            #     buffer_device1.append(out.reshape(-1).data_ptr())
             buffer_device1.append(x_noisy.reshape(-1).data_ptr())
             buffer_device1.append(t.reshape(-1).data_ptr())
             buffer_device1.append(cond_txt.reshape(-1).data_ptr())
@@ -358,15 +358,39 @@ class ControlLDM(LatentDiffusion):
             # control = [c * scale for c, scale in zip(control_out, self.control_scales)]
             # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
 
-            # buffer_device2 = []
-            # buffer_device2.append(x_noisy.reshape(-1).data_ptr())
-            # buffer_device2.append(t.reshape(-1).data_ptr())
-            # buffer_device2.append(cond_txt.reshape(-1).data_ptr())
-            # for out in out_buffer:
-            #     buffer_device2.append(out.reshape(-1).data_ptr())
-            # buffer_device2.append(eps.reshape(-1).data_ptr())
-            #
-            # unet_contexet.execute_v2(buffer_device2)
+    def apply_model2(self, x_noisy, t, cond, unconditional_conditioning, eps1, combine_contexet, *args, **kwargs):
+        # c, unconditional_conditioning
+        assert isinstance(cond, dict)
+
+        cond_txt1 = torch.cat(cond['c_crossattn'], 1)
+        hint_in1 = torch.cat(cond['c_concat'], 1)
+        cond_txt2 = torch.cat(unconditional_conditioning['c_crossattn'], 1)
+        hint_in2 = torch.cat(unconditional_conditioning['c_concat'], 1)
+
+        x_noisy_batch = torch.cat([x_noisy, x_noisy], dim=0)
+        t_batch = torch.cat([t, t])  # bug?
+        hint_in_batch = torch.cat([hint_in1, hint_in2], dim=0)
+        cond_txt_batch = torch.cat([cond_txt1, cond_txt2], dim=0)
+        # eps_batch = torch.cat([eps1, eps2], dim=0)
+
+        buffer_device1 = []
+        # 输入
+        buffer_device1.append(x_noisy_batch.reshape(-1).data_ptr())
+        buffer_device1.append(hint_in_batch.reshape(-1).data_ptr())
+        buffer_device1.append(t_batch.reshape(-1).data_ptr())
+        buffer_device1.append(cond_txt_batch.reshape(-1).data_ptr())
+        buffer_device1.append(x_noisy_batch.reshape(-1).data_ptr())
+        buffer_device1.append(t_batch.reshape(-1).data_ptr())
+        buffer_device1.append(cond_txt_batch.reshape(-1).data_ptr())
+        # 输出
+        buffer_device1.append(eps1.reshape(-1).data_ptr())
+
+        combine_contexet.execute_v2(buffer_device1)
+
+        # control = self.control_model(x=x_noisy, hint=hint_in, timesteps=t, context=cond_txt)
+        # control = [c * scale for c, scale in zip(control_out, self.control_scales)]
+        # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
+
 
     @torch.no_grad()
     def get_unconditional_conditioning(self, N):

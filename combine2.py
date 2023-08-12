@@ -124,8 +124,6 @@ def merge_models(
 
 
 def merge(controlnet_path, unet_path):
-    controlnet = "controlnetsim.onnx"
-    unet = "./unet/unet.onnx"
 
     controlnet_onnx = onnx.load(controlnet_path)
     unet_onnx = onnx.load(unet_path)
@@ -156,4 +154,4 @@ def merge(controlnet_path, unet_path):
     onnx.save(combined_model, "./combine/combine.onnx", save_as_external_data=True)
     checker.check_model("./combine/combine.onnx")
     onnx.shape_inference.infer_shapes_path("./combine/combine.onnx", "./combine/combine_infer.onnx")
-    os.system('onnxsim ./combine/combine.onnx ./combine/combinesim.onnx')
+    os.system('onnxsim ./combine/combine_infer.onnx ./combine/combinesim.onnx')  # 有区别
