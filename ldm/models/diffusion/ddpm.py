@@ -585,7 +585,7 @@ class LatentDiffusion(DDPM):
 
         self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
         self.c = torch.zeros((1, 3, 256, 384), device="cuda", dtype=torch.float32)
-        self.c1 = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
+        self.c1 = torch.zeros((2, 77, 768), device="cuda", dtype=torch.float32)
 
     def make_cond_schedule(self, ):
         self.cond_ids = torch.full(size=(self.num_timesteps,), fill_value=self.num_timesteps - 1, dtype=torch.long)
@@ -667,24 +667,24 @@ class LatentDiffusion(DDPM):
             raise NotImplementedError(f"encoder_posterior of type '{type(encoder_posterior)}' not yet implemented")
         return self.scale_factor * z
 
-    def get_learned_conditioning(self, text1):
+    def get_learned_conditioning(self, text1, text2):
         if self.cond_stage_forward is None:
             if True:
                 batch_encoding1 = self.tokenizer(text1, truncation=True, max_length=77, return_length=True,
                                                 return_overflowing_tokens=False, padding="max_length",
                                                 return_tensors="pt")
-                # batch_encoding2 = self.tokenizer(text2, truncation=True, max_length=77, return_length=True,
-                #                                  return_overflowing_tokens=False, padding="max_length",
-                #                                  return_tensors="pt")
+                batch_encoding2 = self.tokenizer(text2, truncation=True, max_length=77, return_length=True,
+                                                 return_overflowing_tokens=False, padding="max_length",
+                                                 return_tensors="pt")
 
                 tokens1 = batch_encoding1["input_ids"].to(self.device).to(torch.int32)
-                # tokens2 = batch_encoding2["input_ids"].to(self.device).to(torch.int32)
-                # tokens = torch.cat([tokens1, tokens2], dim=0)
+                tokens2 = batch_encoding2["input_ids"].to(self.device).to(torch.int32)
+                tokens = torch.cat([tokens1, tokens2], dim=0)
                 # c = self.cond_stage_model.encode(tokens)  # cond_stage_model
                 # 显存分配
                 # c = torch.zeros((1, 77, 768), device="cuda", dtype=torch.float32)
                 buffer_device = []
-                buffer_device.append(tokens1.reshape(-1).data_ptr())
+                buffer_device.append(tokens.reshape(-1).data_ptr())
                 buffer_device.append(self.c1.reshape(-1).data_ptr())
 
                 self.clip_context.execute_v2(buffer_device)

@@ -86,7 +86,7 @@ class hackathon():
 
         transformer = self.model.cond_stage_model
 
-        input = torch.zeros((1, 77), dtype=torch.int32, device="cuda")
+        input = torch.zeros((2, 77), dtype=torch.int32, device="cuda")
 
         # 导出 input_names和output_names 带括号
         with torch.inference_mode():
@@ -96,7 +96,7 @@ class hackathon():
         os.system("onnxsim clip.onnx clipsim.onnx")
         clip_fp16("./clipsim.onnx")
         os.system(
-            "trtexec --onnx=clip_fp16.onnx --fp16  --saveEngine=clip.trt --inputIOFormats=int32:chw --minShapes=input_ids:1x77 --optShapes=input_ids:1x77 --maxShapes=input_ids:1x77")
+            "trtexec --onnx=clip_fp16.onnx --fp16  --saveEngine=clip.trt --inputIOFormats=int32:chw --minShapes=input_ids:2x77 --optShapes=input_ids:2x77 --maxShapes=input_ids:2x77")
 
         vae_model = self.model.first_stage_model
 
@@ -192,18 +192,18 @@ class hackathon():
 
             # c1 = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
 
-            cond = {"c_concat": [control],
-                    "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}
-            un_cond = {"c_concat": None if guess_mode else [control],
-                       "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}
+            # cond = {"c_concat": [control],
+            #         "c_crossattn": [self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)]}
+            # un_cond = {"c_concat": None if guess_mode else [control],
+            #            "c_crossattn": [self.model.get_learned_conditioning([n_prompt] * num_samples)]}
 
             # batch_size = 2
-            # c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
-            #
-            # cond = {"c_concat": [control],
-            #         "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
-            # un_cond = {"c_concat": None if guess_mode else [control],
-            #            "c_crossattn": [c_crossattn[1].unsqueeze(0)]}  # 加载过一次cond_stage_model
+            c_crossattn = self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples, [n_prompt] * num_samples)
+
+            cond = {"c_concat": [control],
+                    "c_crossattn": [c_crossattn[0].unsqueeze(0)]}#加载过一次cond_stage_model clip
+            un_cond = {"c_concat": None if guess_mode else [control],
+                       "c_crossattn": [c_crossattn[1].unsqueeze(0)]}  # 加载过一次cond_stage_model
             shape = (4, H // 8, W // 8)
 
             if config.save_memory:
